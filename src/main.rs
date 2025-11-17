@@ -41,8 +41,8 @@ impl SimParams {
             dt,
             n_steps: 2000,
             c0,
-            source_freq_hz: 20.0, // Hz (very low; just for demo)
-            source_duration_s: 0.05,
+            source_freq_hz: 100.0, // Hz (very low; just for demo)
+            source_duration_s: 0.05, //unused
             absorb_width: 20,
             absorb_max: 0.015,
         }
@@ -152,10 +152,10 @@ fn run_sim(params: &SimParams) {
         }
 
         // Add source term at center (in p_next)
-        if t < params.source_duration_s {
-            let s = ricker(t, params.source_freq_hz);
-            fields.p_next[source_idx] += s;
-        }
+        
+        let s = ricker(t, params.source_freq_hz);
+        fields.p_next[source_idx] += s;
+        
 
         // Apply damping (simple sponge)
         for i in 0..n {
