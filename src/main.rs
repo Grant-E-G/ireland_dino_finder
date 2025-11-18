@@ -1,3 +1,5 @@
+mod hdf5_helper;
+
 use std::fs::{create_dir_all, File};
 use std::io::{BufWriter, Write};
 
