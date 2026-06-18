@@ -6,7 +6,7 @@ The current Rust code is only a baseline toy: a constant-velocity 2D scalar acou
 
 ## Current State
 
-- `src/main.rs`: 2D finite-difference pressure wave demo with constant `c0`.
+- `src/main.rs`: 2D finite-difference pressure wave demo with constant `c0`, plus fast baseline tests for README models 1 and 2.
 - `src/hdf5_helper.rs`: draft HDF5 time-series writer for future video-ready outputs.
 - `python/csv_vis.py`: quick matplotlib viewer for `output/pressure_final.csv`.
 - `python/h5py_reader.py`: helper for reading future HDF5 wave cubes.
@@ -18,6 +18,12 @@ Run the current demo:
 ```sh
 cargo run
 python python/csv_vis.py
+```
+
+Run the fast baseline checks:
+
+```sh
+cargo test
 ```
 
 ## Research Goal
@@ -101,6 +107,8 @@ Downsides and limitations:
 - cannot reproduce measured power-law attenuation;
 - material interfaces can look too clean unless scattering is explicitly resolved.
 
+Implementation status: implemented as `WaveModel::LosslessAcoustic` in `src/main.rs`.
+
 ### 2. Simple Damped Acoustic Wave
 
 ```text
@@ -117,6 +125,8 @@ Downsides and limitations:
 - damping is not a good broadband material law;
 - one coefficient cannot usually match both amplitude loss and dispersion;
 - measured attenuation is often closer to `f^y` than to a simple viscous term.
+
+Implementation status: implemented as `WaveModel::LinearDampedAcoustic { gamma }` in `src/main.rs`.
 
 ### 3. Standard Linear Solid / Zener Relaxation
 
@@ -194,6 +204,38 @@ The baseline models should not only be compared by "does the wave look nice." Th
 
 Argo et al. measured water-saturated glass beads from 300 kHz to 800 kHz and reported porosity-dependent sound speed plus negative dispersion above about 550 kHz. That is exactly the kind of behavior to use as a sanity check: a model can match one frequency and still miss the trend.
 
+## Fast Baseline Test
+
+The first automated benchmark is intentionally tiny. It is not a research-grade validation case; it is a fast smoke test that almost any reasonable wave model should pass before we trust it on heterogeneous materials.
+
+The test geometry is a homogeneous 2D grid:
+
+```text
+grid: 61 x 61
+dx = dz = 0.05
+c0 = 1.0
+dt = 0.015
+steps = 150
+source: Ricker wavelet, f0 = 5.0, centered at t = 3 / f0
+probe: 1.0 distance unit to the right of the source
+boundaries: no sponge damping for the test
+```
+
+Acceptance checks:
+
+- model 1, lossless acoustics, must produce a measurable probe pulse whose peak arrives near `source_peak_time + distance / c0`;
+- model 2, simple damped acoustics, must keep roughly the same travel time as model 1;
+- model 2 must reduce peak amplitude and probe-trace energy relative to model 1.
+
+This gives future models a minimum contract:
+
+- do not explode numerically on a small stable grid;
+- preserve first-order travel time in a homogeneous medium;
+- apply loss only when the model claims to apply loss;
+- produce probe traces that can later be compared automatically.
+
+The current tests live in `src/main.rs` and run with `cargo test`.
+
 ## Data Plan
 
 `data/material_properties.csv` is a seed file, not a truth database. Every row has:
@@ -240,8 +282,9 @@ Long-term:
 - [ ] Add a material-map loader from CSV or image masks.
 - [ ] Implement HDF5 frame writing in the active solver path.
 - [ ] Add video rendering from HDF5.
+- [x] Add baseline lossless homogeneous acoustic solver.
+- [x] Add simple damped acoustic baseline.
 - [ ] Add baseline lossless heterogeneous acoustic solver.
-- [ ] Add simple damped acoustic baseline.
 - [ ] Add Zener/SLS baseline.
 - [ ] Add constant-Q baseline.
 - [ ] Add Biot or effective-density-fluid-model baseline for saturated granular media.

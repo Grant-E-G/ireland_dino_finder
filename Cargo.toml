@@ -5,4 +5,4 @@ edition = "2024"
 
 [dependencies]
 hdf5-metno = "0.10"
-ndarray    = "0.15"
+ndarray    = "0.17"

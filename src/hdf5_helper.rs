@@ -1,7 +1,7 @@
 use hdf5_metno::{File, Result};
 use hdf5_metno::{Extents, SimpleExtents};
 use hdf5_metno::dataset::Dataset;
-use ndarray::{Array2, ArrayView2, Axis, s};
+use ndarray::Array2;
 
 pub struct Hdf5WaveWriter {
     file: File,
@@ -103,7 +103,7 @@ impl Hdf5WaveWriter {
 
         // Write directly as a 2D slice at fixed time index `cur_t`
         self.ds_u.write_slice(
-            u,                   // ArrayView2<f32>
+            u.view(),
             (cur_t, 0..self.ny, 0..self.nx),
         )?;
 
