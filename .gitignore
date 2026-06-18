@@ -1,2 +1,4 @@
 /target
 /output
+source/pdf/*.pdf
+!source/pdf/.gitkeep
