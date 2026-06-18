@@ -2,15 +2,18 @@
 
 This started as a joke about finding dinosaur bones with sound waves in Ireland. The useful version is an R&D sandbox for weird wave math: simulate sound or pressure waves through 2D and eventually 3D material slices, with special interest in fractional differential equations whose fractional order varies over space by material.
 
-The current Rust code is only a baseline toy: a constant-velocity 2D scalar acoustic wave equation with a Ricker source, sponge boundary damping, and final pressure output as CSV. The project goal is to grow that into a simulation and visualization pipeline for heterogeneous, dispersive, lossy media.
+The current Rust code is a baseline toy with useful scaffolding: a 2D scalar acoustic wave equation with Ricker source, sponge boundary damping, per-cell wave speed, CSV/HDF5 output, and fast diagnostic tests. The project goal is to grow that into a simulation and visualization pipeline for heterogeneous, dispersive, lossy media.
 
 ## Current State
 
-- `src/main.rs`: 2D finite-difference pressure wave demo with constant `c0`, plus fast baseline tests for README models 1 and 2.
-- `src/hdf5_helper.rs`: draft HDF5 time-series writer for future video-ready outputs.
+- `src/main.rs`: thin demo entry point.
+- `src/grid.rs`, `src/materials.rs`, `src/source.rs`, `src/model.rs`, `src/solver.rs`, `src/output.rs`: simulation modules.
+- `src/hdf5_helper.rs`: HDF5 time-series writer used by the active solver path.
 - `python/csv_vis.py`: quick matplotlib viewer for `output/pressure_final.csv`.
 - `python/h5py_reader.py`: helper for reading future HDF5 wave cubes.
-- `data/material_properties.csv`: seed material properties with citation keys and source URLs.
+- `python/h5_to_mp4.py`: render `output/wavefield.h5` to `output/wavefield.mp4`.
+- `data/material_properties.csv`: seed material properties with citation keys, source URLs, and uncertainty/range columns.
+- `data/material_map_example.csv`: tiny material-id map showing the CSV mask format.
 - `source/pdf/`: local source-paper cache. PDFs are ignored by git.
 
 Run the current demo:
@@ -18,6 +21,7 @@ Run the current demo:
 ```sh
 cargo run
 python python/csv_vis.py
+python python/h5_to_mp4.py
 ```
 
 Run the fast baseline checks:
@@ -107,7 +111,7 @@ Downsides and limitations:
 - cannot reproduce measured power-law attenuation;
 - material interfaces can look too clean unless scattering is explicitly resolved.
 
-Implementation status: implemented as `WaveModel::LosslessAcoustic` in `src/main.rs`.
+Implementation status: implemented as `WaveModel::LosslessAcoustic` in `src/model.rs`. The active solver supports homogeneous and heterogeneous per-cell wave speed maps.
 
 ### 2. Simple Damped Acoustic Wave
 
@@ -126,7 +130,7 @@ Downsides and limitations:
 - one coefficient cannot usually match both amplitude loss and dispersion;
 - measured attenuation is often closer to `f^y` than to a simple viscous term.
 
-Implementation status: implemented as `WaveModel::LinearDampedAcoustic { gamma }` in `src/main.rs`.
+Implementation status: implemented as `WaveModel::LinearDampedAcoustic { gamma }` in `src/model.rs`.
 
 ### 3. Standard Linear Solid / Zener Relaxation
 
@@ -149,7 +153,7 @@ Downsides and limitations:
 - many relaxation mechanisms can fit data but become parameter-heavy;
 - does not by itself explain non-integer broadband power laws compactly.
 
-Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s }` in `src/main.rs`. This first version uses one relaxed velocity memory as a fast diagnostic proxy, not a complete calibrated Zener constitutive solver.
+Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s }` in `src/model.rs`. This first version uses one relaxed velocity memory as a fast diagnostic proxy, not a complete calibrated Zener constitutive solver.
 
 ### 4. Constant-Q / Kjartansson-Style Viscoacoustic Model
 
@@ -172,7 +176,7 @@ Downsides and limitations:
 - low-frequency and high-frequency behavior need care for causality;
 - not enough when measured exponents differ strongly by material.
 
-Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz }` in `src/main.rs`. This first version maps `Q` at a reference frequency to a simple damped update, so it is a band-limited proxy rather than a full Kjartansson dispersion implementation.
+Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz }` in `src/model.rs`. This first version maps `Q` at a reference frequency to a simple damped update, so it is a band-limited proxy rather than a full Kjartansson dispersion implementation.
 
 ### 5. Biot Poroelastic Model
 
@@ -197,7 +201,7 @@ Downsides and limitations:
 - implementation is much heavier than scalar acoustics;
 - published measurements in water-saturated granular materials still show frequency dependencies that simpler Biot-derived models may only match qualitatively.
 
-Implementation status: reduced baseline implemented as `WaveModel::ReducedBiotPoroelastic { drag_gamma, relaxation_time_s, pore_coupling }` in `src/main.rs`. This first version is a pore-drag memory proxy for smoke testing, not full coupled solid/fluid Biot elastodynamics.
+Implementation status: reduced baseline implemented as `WaveModel::ReducedBiotPoroelastic { drag_gamma, relaxation_time_s, pore_coupling }` in `src/model.rs`. This first version is a pore-drag memory proxy for smoke testing, not full coupled solid/fluid Biot elastodynamics.
 
 ## Why Frequency Dependence Matters
 
@@ -238,9 +242,13 @@ Extra debugging checks:
 - impulse sources fire only on the selected step;
 - a zero-source run stays exactly at rest;
 - symmetric probes in a homogeneous lossless field agree;
+- a heterogeneous slow-zone path delays the probe peak;
 - sponge boundaries reduce late field energy;
 - unstable Courant numbers are rejected before time stepping;
 - probe traces and final fields stay finite.
+- the material-property CSV parser handles quoted fields and material-id masks;
+- the active solver writes final CSV and HDF5 frames;
+- prototype Grünwald-Letnikov fractional weights have expected first terms.
 
 This gives future models a minimum contract:
 
@@ -249,7 +257,7 @@ This gives future models a minimum contract:
 - apply loss only when the model claims to apply loss;
 - produce probe traces that can later be compared automatically.
 
-The current tests live in `src/main.rs` and run with `cargo test`.
+The current tests live with the solver/model/material modules and run with `cargo test`.
 
 ## Data Plan
 
@@ -261,21 +269,34 @@ The current tests live in `src/main.rs` and run with `cargo test`.
 - porosity and frequency band when the value is band-specific;
 - a citation key and source URL;
 - notes explaining approximations.
+- uncertainty/range columns for density, P-wave speed, and attenuation when a useful range is known.
+
+Material maps can be loaded from CSV masks whose cells are material ids from `data/material_properties.csv`. See `data/material_map_example.csv` for the current simple format. Missing velocities fall back to a caller-provided speed so early experiments can still run while the dataset is incomplete.
 
 Immediate cleanup targets:
 
 - replace generic cortical bone values with the actual bone, antler, or phantom used in a tank;
 - add natural sand measurements, not only glass bead analogs;
 - separate intrinsic material loss from scattering loss;
-- store uncertainty ranges instead of single values;
 - add Ireland-relevant soils/rocks only when sourced from real geotechnical or geological measurements.
+
+## Fractional-Order Interface Decision
+
+For the first variable-order fractional implementation, treat material parameters as piecewise constant per grid cell. A material id owns `alpha`, relaxation times, and any history approximation parameters. At interfaces, update each cell using its own parameters and let the finite-difference stencil couple neighboring pressures.
+
+This is deliberately conservative:
+
+- it matches the current material-map representation;
+- it avoids inventing an interpolation rule before we have validation data;
+- it lets sharp interfaces represent real material boundaries;
+- smoothing or harmonic/interface averaging can be added later if tests show numerical artifacts.
+
+The practical consequence is that fractional history storage should eventually be grouped by material region or by quantized `alpha`, not by arbitrary floating-point values at every cell.
 
 ## Output Plan
 
 Near-term:
 
-- write HDF5 wavefield frames at interval `N`;
-- add a Python script that renders frames to MP4;
 - store material maps alongside wavefields;
 - include source wavelet and probe traces in HDF5 metadata.
 
@@ -283,7 +304,7 @@ Medium-term:
 
 - compare lossless, damped, Zener, constant-Q, Biot/EDFM, and fractional models on the same geometry;
 - compute residual plots and frequency-domain probe diagnostics;
-- add 2D heterogeneous material maps from CSV parameters.
+- add richer 2D heterogeneous material maps from image masks.
 
 Long-term:
 
@@ -293,24 +314,27 @@ Long-term:
 
 ## TODO
 
-- [ ] Refactor `main.rs` into modules: grid, materials, source, solver, output.
-- [ ] Add a material-map loader from CSV or image masks.
-- [ ] Implement HDF5 frame writing in the active solver path.
-- [ ] Add video rendering from HDF5.
+- [x] Refactor `main.rs` into modules: grid, materials, source, solver, output.
+- [x] Add a material-map loader from CSV material-id masks.
+- [x] Implement HDF5 frame writing in the active solver path.
+- [x] Add video rendering from HDF5.
 - [x] Add baseline lossless homogeneous acoustic solver.
 - [x] Add simple damped acoustic baseline.
 - [x] Add reduced Zener/SLS baseline.
 - [x] Add reduced constant-Q baseline.
 - [x] Add reduced Biot/EDFM-style baseline.
-- [ ] Add baseline lossless heterogeneous acoustic solver.
+- [x] Add baseline lossless heterogeneous acoustic solver.
 - [ ] Replace reduced Zener/SLS proxy with calibrated constitutive model.
 - [ ] Replace constant-Q proxy with causal dispersion implementation.
 - [ ] Replace reduced Biot proxy with coupled poroelastic or EDFM implementation.
-- [ ] Prototype fractional time derivative with convolution quadrature or diffusive approximation.
-- [ ] Decide how to handle spatially varying fractional order at material interfaces.
-- [ ] Add unit tests for CFL checks, source wavelet, and material-map parsing.
-- [ ] Add benchmark cases with analytic or published reference behavior.
-- [ ] Add uncertainty columns to material data.
+- [x] Prototype fractional time derivative weights with Grünwald-Letnikov coefficients.
+- [x] Decide how to handle spatially varying fractional order at material interfaces.
+- [x] Add unit tests for CFL checks, source wavelet, and material-map parsing.
+- [x] Add first benchmark case with analytic travel-time behavior.
+- [x] Add uncertainty columns to material data.
+- [ ] Add image-mask material-map loader.
+- [ ] Store material maps, source wavelet, and probe traces in HDF5 metadata.
+- [ ] Add published-reference benchmark behavior from Argo et al. or another source paper.
 
 ## Local Papers
 

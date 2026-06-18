@@ -1,4 +1,6 @@
 /target
 /output
+__pycache__/
+*.py[cod]
 source/pdf/*.pdf
 !source/pdf/.gitkeep
