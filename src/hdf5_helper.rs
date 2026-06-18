@@ -1,6 +1,6 @@
-use hdf5_metno::{File, Result};
-use hdf5_metno::{Extents, SimpleExtents};
 use hdf5_metno::dataset::Dataset;
+use hdf5_metno::{Extents, SimpleExtents};
+use hdf5_metno::{File, Result};
 use ndarray::Array2;
 
 pub struct Hdf5WaveWriter {
@@ -28,10 +28,10 @@ impl Hdf5WaveWriter {
         // NOTE: depending on crate version this may be `new_dataset::<T>()`
         // rather than `new_dataset_builder::<T>()`. Adjust if needed.
         let ds_u = file
-            .new_dataset::<f32>()      // dataset element type
-            .shape(shape)              // current + max dimensions
-            .chunk((chunk_t, ny, nx))  // HDF5 chunk shape
-            .create("u")?;             // dataset name
+            .new_dataset::<f32>() // dataset element type
+            .shape(shape) // current + max dimensions
+            .chunk((chunk_t, ny, nx)) // HDF5 chunk shape
+            .create("u")?; // dataset name
 
         Ok(Self {
             file,
@@ -102,10 +102,8 @@ impl Hdf5WaveWriter {
         self.ds_u.resize((new_t, self.ny, self.nx))?;
 
         // Write directly as a 2D slice at fixed time index `cur_t`
-        self.ds_u.write_slice(
-            u.view(),
-            (cur_t, 0..self.ny, 0..self.nx),
-        )?;
+        self.ds_u
+            .write_slice(u.view(), (cur_t, 0..self.ny, 0..self.nx))?;
 
         self.nt_written = new_t;
         Ok(())

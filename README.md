@@ -149,6 +149,8 @@ Downsides and limitations:
 - many relaxation mechanisms can fit data but become parameter-heavy;
 - does not by itself explain non-integer broadband power laws compactly.
 
+Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s }` in `src/main.rs`. This first version uses one relaxed velocity memory as a fast diagnostic proxy, not a complete calibrated Zener constitutive solver.
+
 ### 4. Constant-Q / Kjartansson-Style Viscoacoustic Model
 
 A common seismic approximation treats quality factor `Q` as roughly frequency independent over a band:
@@ -169,6 +171,8 @@ Downsides and limitations:
 - constant `Q` implies a constrained frequency law;
 - low-frequency and high-frequency behavior need care for causality;
 - not enough when measured exponents differ strongly by material.
+
+Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz }` in `src/main.rs`. This first version maps `Q` at a reference frequency to a simple damped update, so it is a band-limited proxy rather than a full Kjartansson dispersion implementation.
 
 ### 5. Biot Poroelastic Model
 
@@ -192,6 +196,8 @@ Downsides and limitations:
 - many hard-to-measure parameters: permeability, tortuosity, frame moduli, pore geometry;
 - implementation is much heavier than scalar acoustics;
 - published measurements in water-saturated granular materials still show frequency dependencies that simpler Biot-derived models may only match qualitatively.
+
+Implementation status: reduced baseline implemented as `WaveModel::ReducedBiotPoroelastic { drag_gamma, relaxation_time_s, pore_coupling }` in `src/main.rs`. This first version is a pore-drag memory proxy for smoke testing, not full coupled solid/fluid Biot elastodynamics.
 
 ## Why Frequency Dependence Matters
 
@@ -224,8 +230,17 @@ boundaries: no sponge damping for the test
 Acceptance checks:
 
 - model 1, lossless acoustics, must produce a measurable probe pulse whose peak arrives near `source_peak_time + distance / c0`;
-- model 2, simple damped acoustics, must keep roughly the same travel time as model 1;
-- model 2 must reduce peak amplitude and probe-trace energy relative to model 1.
+- lossy baseline models must keep roughly the same travel time as model 1;
+- lossy baseline models must reduce peak amplitude and probe-trace energy relative to model 1.
+
+Extra debugging checks:
+
+- impulse sources fire only on the selected step;
+- a zero-source run stays exactly at rest;
+- symmetric probes in a homogeneous lossless field agree;
+- sponge boundaries reduce late field energy;
+- unstable Courant numbers are rejected before time stepping;
+- probe traces and final fields stay finite.
 
 This gives future models a minimum contract:
 
@@ -284,10 +299,13 @@ Long-term:
 - [ ] Add video rendering from HDF5.
 - [x] Add baseline lossless homogeneous acoustic solver.
 - [x] Add simple damped acoustic baseline.
+- [x] Add reduced Zener/SLS baseline.
+- [x] Add reduced constant-Q baseline.
+- [x] Add reduced Biot/EDFM-style baseline.
 - [ ] Add baseline lossless heterogeneous acoustic solver.
-- [ ] Add Zener/SLS baseline.
-- [ ] Add constant-Q baseline.
-- [ ] Add Biot or effective-density-fluid-model baseline for saturated granular media.
+- [ ] Replace reduced Zener/SLS proxy with calibrated constitutive model.
+- [ ] Replace constant-Q proxy with causal dispersion implementation.
+- [ ] Replace reduced Biot proxy with coupled poroelastic or EDFM implementation.
 - [ ] Prototype fractional time derivative with convolution quadrature or diffusive approximation.
 - [ ] Decide how to handle spatially varying fractional order at material interfaces.
 - [ ] Add unit tests for CFL checks, source wavelet, and material-map parsing.
