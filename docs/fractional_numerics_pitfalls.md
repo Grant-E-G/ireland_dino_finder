@@ -1,56 +1,57 @@
 # Fractional Numerics Pitfalls
 
-This note tracks theory-side traps that matter for this project. The central warning is simple: fractional models are attractive because they compactly encode long memory and power-law loss/dispersion. Several practical approximations can erase exactly that advantage.
+This note tracks theory-side traps that matter for the solver. The central warning: fractional models are attractive because they compactly encode long memory and power-law loss/dispersion, and several practical approximations erase exactly that advantage.
+
+This file is the actionable trap list. The conceptual grounding — complete monotonicity and the sum-of-exponentials connection, the Kramers-Kronig link between attenuation and dispersion, and the subdiffusion-vs-wave regime split — lives in `docs/variable_space_fractional_wave_review.md`. Here we just record what to do and what to test.
+
+One framing fact used throughout: most of the cited numerical-analysis results were proved for *subdiffusion*, order `0 < α < 1`. This project is a *wave* problem, effective order `1 < α < 2` (and the Zener form pushes higher). The qualitative lessons carry over; the regularity and stability constants do not transfer automatically, and the relevant in-regime reference is usually different. Each item below is tagged with the regime its sources come from.
 
 ## 1. Short Memory Can Destroy the Model
 
-Fractional time derivatives are history integrals with slow power-law decay. If we simply truncate history after a fixed window, we may convert a long-memory process into an ordinary finite-memory model. Lewandowska and Kosztolowicz make this point directly for subdiffusion: the process is long-memory, and the short-memory principle should not be used for that case.
+*(sources: subdiffusion)* Fractional time derivatives are history integrals with slow power-law decay. Truncating history after a fixed window can convert a long-memory process into an ordinary finite-memory model. Lewandowska and Kosztolowicz make this point directly for subdiffusion.
 
 Project rule:
 
-- Do not use fixed-window history truncation as the default fractional derivative.
-- If we add truncation, expose it as an approximation with a tunable memory horizon and test it against full-history results.
-- Any claim about power-law attenuation must include a frequency/time range over which the memory approximation is valid.
+- No fixed-window history truncation as the default.
+- If truncation is added, expose it as an approximation with a tunable memory horizon and test it against full-history results.
+- Any power-law attenuation claim must state the frequency/time range over which the memory approximation holds.
 
-Local PDF:
-
-- `source/pdf/lewandowska_kosztolowicz_2006_short_memory_subdiffusion.pdf`
+Local PDF: `source/pdf/lewandowska_kosztolowicz_2006_short_memory_subdiffusion.pdf`
 
 ## 2. Sum-of-Exponentials Can Become Just a Many-Relaxation Model
 
-Approximating a power-law kernel by a finite sum of exponentials is useful because it turns expensive history convolution into a set of recursive internal states. The catch is conceptual and numerical:
+*(sources: general / subdiffusion stability)* Approximating a power-law kernel by a finite sum of exponentials turns expensive history convolution into recursive internal states `z_j' = -λ_j z_j + input`. That is exactly a finite collection of relaxation modes, so with too few exponentials or a poorly chosen fit interval `[δ, T]` the model is no longer broadband fractional — it is a many-relaxation Zener model. That may be a fine engineering model, but it is a different claim.
 
-- too few exponentials give a kernel that behaves like a small number of Debye/Zener relaxations, not a broadband fractional power law;
-- the approximation is valid only on a chosen time interval `[delta, T]`;
-- kernel compression can change the effective memory law;
-- stability proofs may depend on positivity/semidefinite properties of the approximated convolution weights.
+The exact kernel is completely monotone, i.e. a positive superposition of decaying exponentials (Bernstein). A faithful SOE preserves that structure: positive weights and decays keep the approximate kernel completely monotone, which is what preserves passivity. Negative weights can fit the curve while breaking the physics. Separately, for power-law attenuation the relaxation modulus is completely monotone only for roughly `1/2 ≤ α ≤ 1` (Hanyga), so exponents outside that band are non-passive fits and should be flagged per material.
 
-This is not a reason to avoid sum-of-exponentials. It is a reason to treat it as a calibrated approximation, not as "the" fractional derivative. Quan, Wu, and Yang's fast L2-1_sigma stability work is a useful warning: stability of fast SOE schemes is a theorem with conditions, not an automatic consequence of replacing the kernel. Chaudhary, Diethelm, Farhadi, and Fuchs are useful for implementation because they frame SOE approximation by explicit cost/error tradeoffs.
+Quan, Wu, and Yang's fast L2-1σ stability work is the warning that SOE-scheme stability is a theorem with conditions, not an automatic consequence of swapping the kernel. Chaudhary et al. frame the SOE approximation by explicit cost/error tradeoffs.
 
 Project rule:
 
-- Store the fitted time band and kernel error with every SOE approximation.
+- Store the fitted time band `[δ, T]`, weights, decays, and kernel error with every SOE approximation.
 - Test the fitted kernel against the target power law before running a wave simulation.
-- Include a probe-spectrum check: if the SOE model no longer produces the intended attenuation slope, it has lost the fractional advantage.
-- Prefer positive weights/decays where possible, because positivity is tied to dissipation and stability arguments.
+- Probe-spectrum check: if the SOE model no longer produces the intended attenuation slope, it has lost the fractional advantage.
+- Prefer positive weights/decays; positivity ties to complete monotonicity, dissipation, and stability.
+- Check that the fitted attenuation and dispersion stay Kramers-Kronig consistent over the source band (they cannot be fit independently).
 
 Local PDFs:
 
 - `source/pdf/quan_wu_yang_2022_fast_l2_stability_soe.pdf`
 - `source/pdf/chaudhary_diethelm_farhadi_fuchs_2025_exponential_sum_power_law.pdf`
 
-## 3. Advertised High Order Often Assumes Smooth Solutions We Do Not Have
+## 3. Advertised High Order Assumes Smoothness We Do Not Have
 
-Fractional evolution problems commonly have weak singular behavior near `t = 0`. High-order schemes can degrade sharply when the solution lacks the smoothness assumed by the analysis. Jin, Lazarov, and Zhou show that the popular L1 scheme's classical `O(tau^(2-alpha))` claim depends on restrictive smoothness; for nonsmooth data they establish `O(tau)` behavior. Their overview paper collects related results for convolution quadrature, L1-type schemes, and nonsmooth data.
+*(sources: subdiffusion — Jin/Lazarov/Zhou; wave — Li/Wang/Xie)* Fractional evolution problems have weak singular behavior near `t = 0`, so high-order schemes degrade when the solution lacks the assumed smoothness. Jin, Lazarov, and Zhou show the L1 scheme's `O(τ^(2-α))` claim depends on restrictive smoothness, with `O(τ)` for nonsmooth data; their overview collects related convolution-quadrature and L1 results. The same applies to the wave regime: Li, Wang, and Xie analyze L1 for fractional *wave* equations with nonsmooth data and propose a modified L1 scheme. Our Ricker pulses, sharp material interfaces, and abrupt source turn-on are exactly the nonsmooth cases these results target.
 
-This matters for wave simulations because Ricker pulses, material interfaces, and abrupt initial/source conditions are not globally smooth in the sense required by many clean convergence claims.
+The discretization choice itself matters. The README prototypes Grünwald-Letnikov weights; GL, the L1 scheme, and L2-1σ differ in formal order and in nonsmooth-data robustness (GL in particular is prone to order reduction without startup correction). Pick one deliberately and record why.
 
 Project rule:
 
 - Do not trust nominal scheme order unless the test problem has the required regularity.
-- Include graded-time or startup-correction options before claiming high order.
-- Benchmark with both smooth manufactured signals and pulse/interface cases.
-- Track convergence empirically: halve `dt`, compare probe traces, and estimate observed order.
+- Benchmark with both smooth manufactured signals and pulse/interface cases; estimate observed order by halving `dt` and comparing probe traces.
+- Offer graded-time or startup-correction options before claiming high order.
+- Keep the fast smoke tests, but add a separate convergence suite for the fractional-wave variants with discontinuous material maps and compact pulses.
+- Compare full-history, SOE, and any short-memory approximations on the same probe traces.
 
 Local PDFs:
 
@@ -60,31 +61,25 @@ Local PDFs:
 
 ## 4. Variable Order Breaks Some Standard Proof Machinery
 
-This project is specifically interested in space-varying fractional order by material. Variable-order fractional derivatives are not just constant-order derivatives with `alpha` replaced by `alpha(x)`.
-
-Zheng's variable-order work points out that standard approximation schemes can lose monotonicity of discretization coefficients, so existing numerical analysis techniques do not apply directly. That is a major warning for stability and convergence if we let `alpha` jump across material interfaces.
+*(sources: general variable-order)* Space-varying fractional order by material is not constant-order with `α` replaced by `α(x)`. Zheng's variable-order work shows standard schemes can lose monotonicity of discretization coefficients, so existing analysis does not apply directly — a real warning for stability and convergence if `α` jumps across interfaces.
 
 Project rule:
 
 - Start with piecewise-constant orders per material and fixed interface tests.
-- Do not interpolate fractional order smoothly unless there is a physical reason and a test.
+- Do not interpolate fractional order smoothly without a physical reason and a test.
 - Add a two-material interface benchmark before any 2D/3D production visuals.
 - Treat coefficient monotonicity/positivity as a diagnostic, not an implementation detail.
 
-Local PDF:
-
-- `source/pdf/zheng_2021_variable_order_integral_equation.pdf`
+Local PDF: `source/pdf/zheng_2021_variable_order_integral_equation.pdf`
 
 ## 5. Spatial Fractional Operators Have Boundary-Definition Traps
 
-If we later add a spatial fractional Laplacian, boundary conditions become part of the operator definition. Lischke et al. show that Riesz/integral, spectral, directional, and horizon-based fractional Laplacians are not interchangeable on bounded domains. For example, an integral definition can require values on the exterior of the domain, while a spectral definition uses standard local boundary data. Borthagaray, Leykekhman, and Nochetto also show boundary singularity effects for the integral fractional Laplacian that degrade global convergence.
-
-This matters for wave visuals: two implementations can look different near absorbing boundaries even if both are called "fractional Laplacian."
+*(sources: spatial fractional Laplacian)* If we later add a spatial fractional Laplacian, boundary conditions become part of the operator definition. Lischke et al. show Riesz/integral, spectral, directional, and horizon-based fractional Laplacians are not interchangeable on bounded domains — an integral definition can need exterior values, a spectral one uses local boundary data. Borthagaray, Leykekhman, and Nochetto show boundary-singularity effects for the integral version that degrade global convergence. Two implementations can disagree near absorbing boundaries even though both are called "the fractional Laplacian."
 
 Project rule:
 
-- Before implementing spatial fractional operators, choose and document the operator definition.
-- Do not mix spectral and integral fractional Laplacian results in the same validation table.
+- Choose and document the operator definition before implementing spatial fractional operators.
+- Do not mix spectral and integral results in the same validation table.
 - Treat absorbing boundaries/PMLs as an open research item for nonlocal spatial operators.
 - Add interior-vs-boundary error diagnostics if spatial fractional operators enter the solver.
 
@@ -93,32 +88,31 @@ Local PDFs:
 - `source/pdf/lischke_pang_gulian_2018_what_is_fractional_laplacian.pdf`
 - `source/pdf/borthagaray_leykekhman_nochetto_2020_fractional_laplacian_boundary_singularity.pdf`
 
-## 6. Fractional Wave Equations Need Nonsmooth-Data Tests Too
+## 6. Stability Is Not Inherited from the Baseline CFL
 
-Fractional diffusion results are not automatically wave results, but the same warning applies: source pulses and material jumps can reduce observed convergence. Li, Wang, and Xie analyze L1 schemes for fractional wave equations with nonsmooth data and propose a modified L1 scheme with better behavior.
+*(sources: general)* The items above are mostly about accuracy. Stability is separate and currently unverified. The classical CFL condition governs the explicit leapfrog Laplacian update, but adding a fractional-in-time memory term changes the stability picture: the memory term contributes its own constraint, and in the `1 < α < 2` regime the combined bound is not the bare CFL number. Do not assume the baseline's safe Courant number stays safe once memory is active.
 
 Project rule:
 
-- Keep the current fast smoke tests, but add a separate convergence suite for fractional wave variants.
-- Include discontinuous material maps and compact pulses, not only smooth manufactured solutions.
-- Compare full-history, SOE, and any short-memory approximations on the same probe traces.
-
-Local PDF:
-
-- `source/pdf/li_wang_xie_2019_l1_fractional_wave_nonsmooth.pdf`
+- Run a dedicated stability sweep (vary `dt` at fixed `dx`) for each fractional scheme, separate from the convergence sweep.
+- Record the empirically stable region alongside any formal bound.
+- Re-check stability whenever the SOE weights, memory horizon, or material order set changes.
 
 ## Implementation Checklist
 
 Before merging a real fractional solver:
 
 - [ ] Define the derivative/operator precisely: Caputo, Riemann-Liouville, fractional Zener, spatial fractional Laplacian, etc.
+- [ ] State the discretization (GL, L1, L2-1σ, convolution quadrature) and why.
 - [ ] State whether the model is full-history, SOE, diffusive representation, short-memory, or another approximation.
 - [ ] Store approximation metadata: order, time band, memory length, SOE weights/decays, and kernel error.
-- [ ] Add a kernel-fit test against the target power law.
-- [ ] Add a convergence test with smooth manufactured data.
-- [ ] Add a nonsmooth pulse/interface test.
-- [ ] Add a probe-spectrum attenuation-slope test.
-- [ ] Add a visual scenario where the fractional model must visibly differ from damped/Zener baselines.
+- [ ] Kernel-fit test against the target power law.
+- [ ] Convergence test with smooth manufactured data.
+- [ ] Convergence test with a nonsmooth pulse/interface case.
+- [ ] Stability sweep with the memory term active (not just the baseline CFL check).
+- [ ] Probe-spectrum attenuation-slope test, with a Kramers-Kronig consistency check on attenuation vs dispersion.
+- [ ] Per-material flag for exponents outside the passive range (~`1/2 ≤ α ≤ 1`).
+- [ ] Visual scenario where the fractional model must visibly differ from damped/Zener baselines.
 - [ ] Document when the approximation degenerates into a finite relaxation model.
 
 ## References
@@ -132,3 +126,6 @@ Before merging a real fractional solver:
 - Chaudhary, Diethelm, Farhadi, and Fuchs, "An Efficient Exponential Sum Approximation of Power-Law Kernels for Solving Fractional Differential Equation", arXiv:2508.20311, https://arxiv.org/abs/2508.20311.
 - Lischke et al., "What Is the Fractional Laplacian?", arXiv:1801.09767, https://arxiv.org/abs/1801.09767.
 - Borthagaray, Leykekhman, and Nochetto, "Local energy estimates for the fractional Laplacian", arXiv:2005.03786, https://arxiv.org/abs/2005.03786.
+- Hanyga, "Wave propagation in linear viscoelastic media with completely monotonic relaxation moduli", Wave Motion 50 (2013) 909-928, arXiv:1302.0402, https://arxiv.org/abs/1302.0402.
+- Mainardi, "Fractional Calculus and Waves in Linear Viscoelasticity: An Introduction to Mathematical Models", Imperial College Press, London, 2010 (2nd ed., World Scientific, 2022).
+- Waters, Mobley, and Miller, "Causality-imposed (Kramers-Kronig) relationships between attenuation and dispersion", IEEE Trans. Ultrason. Ferroelectr. Freq. Control 52 (2005) 822-833.

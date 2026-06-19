@@ -99,6 +99,8 @@ tau_epsilon = tau_epsilon(x, z)
 
 That is mathematically and numerically awkward. The first practical implementation should probably be a 2D material map with piecewise-constant parameters, where each material owns a fixed fractional order and relaxation parameters.
 
+Not every exponent is physically admissible. The power-law memory kernel is completely monotone (hence a positive superposition of decaying relaxation modes) only for a restricted range of orders; for power-law attenuation the relaxation modulus is completely monotone only when roughly `1/2 <= alpha <= 1` (Hanyga). Exponents outside that range can still be fit, but they no longer correspond to a passive relaxation spectrum, which is worth tracking per material.
+
 ## Baseline Models
 
 ### 1. Lossless Scalar Acoustic Wave
@@ -113,18 +115,9 @@ Variable-density form:
 (1 / K(x)) d_t^2 p = div((1 / rho(x)) grad(p)) + s
 ```
 
-Upsides:
+Strengths: simple, fast, easy to validate; good for first arrival times, basic reflection/refraction, and code correctness.
 
-- simple, fast, easy to validate;
-- useful for first arrival times and basic reflection/refraction behavior;
-- good numerical baseline for code correctness.
-
-Downsides and limitations:
-
-- no physical attenuation;
-- no frequency-dependent phase velocity;
-- cannot reproduce measured power-law attenuation;
-- material interfaces can look too clean unless scattering is explicitly resolved.
+Limits: no intrinsic attenuation, no frequency-dependent phase velocity, cannot reproduce power-law attenuation; interfaces look too clean unless scattering is explicitly resolved.
 
 Implementation status: implemented as `WaveModel::LosslessAcoustic` in `src/model.rs`. The active solver supports homogeneous and heterogeneous per-cell wave speed maps.
 
@@ -134,16 +127,9 @@ Implementation status: implemented as `WaveModel::LosslessAcoustic` in `src/mode
 d_t^2 p + gamma(x) d_t p = c(x)^2 * laplacian(p) + s
 ```
 
-Upsides:
+Strengths: easy first lossy model; useful for checking that energy decays and boundaries behave.
 
-- easy first lossy model;
-- useful for checking that energy decays and boundaries behave.
-
-Downsides and limitations:
-
-- damping is not a good broadband material law;
-- one coefficient cannot usually match both amplitude loss and dispersion;
-- measured attenuation is often closer to `f^y` than to a simple viscous term.
+Limits: damping is not a good broadband material law; one coefficient cannot match both amplitude loss and dispersion; measured attenuation is usually closer to `f^y` than to a viscous term.
 
 Implementation status: implemented as `WaveModel::LinearDampedAcoustic { gamma }` in `src/model.rs`.
 
@@ -156,17 +142,9 @@ M(omega) = M_inf * (1 + i * omega * tau_epsilon)
                  / (1 + i * omega * tau_sigma)
 ```
 
-Upsides:
+Strengths: physically interpretable spring-dashpot baseline; causal dispersion and attenuation; extendable to multiple relaxation mechanisms.
 
-- physically interpretable spring-dashpot baseline;
-- causal dispersion and attenuation;
-- can be extended to multiple relaxation mechanisms.
-
-Downsides and limitations:
-
-- a single relaxation time fits a limited frequency band;
-- many relaxation mechanisms can fit data but become parameter-heavy;
-- does not by itself explain non-integer broadband power laws compactly.
+Limits: a single relaxation time fits a limited band; many mechanisms fit broader data but become parameter-heavy; does not by itself explain non-integer broadband power laws compactly.
 
 Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s, relaxation_strength }` in `src/model.rs`. This version uses a one-memory relaxation of the Laplacian/strain term plus damping, so it is closer to a Zener-style relaxation baseline than the first velocity-memory proxy, but it is still not a fully calibrated constitutive solver.
 
@@ -179,17 +157,9 @@ Q^-1 = energy_lost_per_cycle / (2 * pi * stored_energy)
 attenuation(omega) approximately proportional to omega / (2 * Q * c)
 ```
 
-Upsides:
+Strengths: widely used in seismic modeling; better than lossless acoustics for broad attenuation; good comparison point for inverse-Q processing.
 
-- widely used in seismic modeling;
-- better than lossless acoustics for broad attenuation;
-- good comparison point for inverse-Q style processing.
-
-Downsides and limitations:
-
-- constant `Q` implies a constrained frequency law;
-- low-frequency and high-frequency behavior need care for causality;
-- not enough when measured exponents differ strongly by material.
+Limits: constant `Q` implies a constrained frequency law; low- and high-frequency behavior need care for causality; not enough when measured exponents differ strongly by material.
 
 Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz, dispersion_strength }` in `src/model.rs`. This version maps `Q` at a reference frequency to damping and adds a causal one-relaxation dispersion proxy around that frequency, so it is still band-limited rather than a full Kjartansson implementation.
 
@@ -204,17 +174,9 @@ fluid momentum: rho_12 d_t^2 u + rho_22 d_t^2 U + b d_t(U - u) = -grad(p_f)
 
 where `u` is solid displacement, `U` is fluid displacement, `p_f` is pore pressure, and `b` depends on permeability and fluid viscosity.
 
-Upsides:
+Strengths: physics-informed for water-saturated sand and sediments; predicts multiple compressional modes and strong attenuation; directly relevant to the fish-tank experiment.
 
-- physics-informed for water-saturated sand and sediments;
-- predicts multiple compressional modes and strong attenuation;
-- directly relevant to the fish-tank experiment.
-
-Downsides and limitations:
-
-- many hard-to-measure parameters: permeability, tortuosity, frame moduli, pore geometry;
-- implementation is much heavier than scalar acoustics;
-- published measurements in water-saturated granular materials still show frequency dependencies that simpler Biot-derived models may only match qualitatively.
+Limits: many hard-to-measure parameters (permeability, tortuosity, frame moduli, pore geometry); much heavier to implement than scalar acoustics; published measurements in water-saturated granular media still show frequency dependence that simpler Biot-derived models may only match qualitatively.
 
 Implementation status: reduced baseline implemented as `WaveModel::ReducedBiotPoroelastic { drag_gamma, relaxation_time_s, pore_coupling }` in `src/model.rs`. This first version is a pore-drag memory proxy for smoke testing, not full coupled solid/fluid Biot elastodynamics.
 
@@ -242,6 +204,8 @@ The baseline models should not only be compared by "does the wave look nice." Th
 - amplitude attenuation as a function of frequency;
 - reflection/transmission coefficients at material interfaces;
 - recovered target contrast under matched processing.
+
+Attenuation and dispersion are not two independent knobs. Causality forces them into a Hilbert-transform pair (the Kramers-Kronig relations): fix the attenuation law and the dispersion is essentially determined. A model that matches measured attenuation but predicts the wrong phase velocity is usually violating causality, which is why causal power-law wave equations (Szabo) are built the way they are, and why the comparisons above should check attenuation *and* dispersion together rather than tuning each separately.
 
 Argo et al. measured water-saturated glass beads from 300 kHz to 800 kHz and reported porosity-dependent sound speed plus negative dispersion above about 550 kHz. That is exactly the kind of behavior to use as a sanity check: a model can match one frequency and still miss the trend.
 
@@ -324,7 +288,7 @@ This is deliberately conservative:
 
 The practical consequence is that fractional history storage should eventually be grouped by material region or by quantized `alpha`, not by arbitrary floating-point values at every cell.
 
-See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning list: short-memory truncation, SOE approximations, nonsmooth-data convergence loss, variable-order stability issues, and spatial fractional boundary traps. See `docs/variable_space_fractional_wave_review.md` for a longer review draft aimed at the eventual blog post.
+See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning list: short-memory truncation, SOE approximations, nonsmooth-data convergence loss, variable-order issues, spatial fractional boundary traps, and scheme stability, plus a pre-merge implementation checklist. See `docs/variable_space_fractional_wave_review.md` for a longer review draft aimed at the eventual blog post.
 
 ## Output Plan
 
@@ -394,6 +358,10 @@ The following PDFs were downloaded into `source/pdf/` for local reading and are 
 - [argo2009] T. F. Argo IV, M. D. Guild, P. S. Wilson, M. Schroter, C. Radin, and H. L. Swinney, "Sound speed in water-saturated glass beads as a function of frequency and porosity", arXiv:0906.4798, https://arxiv.org/abs/0906.4798.
 - [chintada2022] B. R. Chintada, R. Rau, and O. Goksel, "Spectral Ultrasound Imaging of Speed-of-Sound and Attenuation Using an Acoustic Mirror", arXiv:2201.01435, https://arxiv.org/abs/2201.01435.
 - [tsiklauri2002] D. Tsiklauri, "Phenomenological model of propagation of the elastic waves in a fluid-saturated porous solid with non-zero boundary slip velocity", arXiv:physics/0201045, https://arxiv.org/abs/physics/0201045.
+- [mainardi2010] F. Mainardi, "Fractional Calculus and Waves in Linear Viscoelasticity: An Introduction to Mathematical Models", Imperial College Press, London, 2010 (2nd ed., World Scientific, 2022).
+- [hanyga2013] A. Hanyga, "Wave propagation in linear viscoelastic media with completely monotonic relaxation moduli", Wave Motion 50 (2013) 909-928, arXiv:1302.0402, https://arxiv.org/abs/1302.0402.
+- [szabo1994] T. L. Szabo, "Time domain wave equations for lossy media obeying a frequency power law", J. Acoust. Soc. Am. 96 (1994) 491-500.
+- [waters2005] K. R. Waters, J. Mobley, and J. G. Miller, "Causality-imposed (Kramers-Kronig) relationships between attenuation and dispersion", IEEE Trans. Ultrason. Ferroelectr. Freq. Control 52 (2005) 822-833.
 - [water_data_and_attenuation] Water physical-property table and ultrasound attenuation summary, https://en.wikipedia.org/wiki/Water_(data_page) and https://en.wikipedia.org/wiki/Attenuation.
 - [density_logging] Matrix density values used in density logging, https://en.wikipedia.org/wiki/Density_logging.
 - [p_wave_table] Representative P-wave velocity ranges for common rock types, https://en.wikipedia.org/wiki/P_wave.
