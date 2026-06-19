@@ -324,7 +324,7 @@ This is deliberately conservative:
 
 The practical consequence is that fractional history storage should eventually be grouped by material region or by quantized `alpha`, not by arbitrary floating-point values at every cell.
 
-See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning list: short-memory truncation, SOE approximations, nonsmooth-data convergence loss, variable-order stability issues, and spatial fractional boundary traps.
+See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning list: short-memory truncation, SOE approximations, nonsmooth-data convergence loss, variable-order stability issues, and spatial fractional boundary traps. See `docs/variable_space_fractional_wave_review.md` for a longer review draft aimed at the eventual blog post.
 
 ## Output Plan
 
