@@ -24,6 +24,21 @@ python python/csv_vis.py
 python python/h5_to_mp4.py
 ```
 
+Run visual sanity scenarios:
+
+```sh
+cargo run -- --scenario visual-all
+ffmpeg -y -framerate 30 -i output/visual/visual_lossless_uniform_frames/frame_%06d.ppm -pix_fmt yuv420p output/visual/visual_lossless_uniform.mp4
+ffmpeg -y -framerate 30 -i output/visual/visual_lossless_slow_block_frames/frame_%06d.ppm -pix_fmt yuv420p output/visual/visual_lossless_slow_block.mp4
+ffmpeg -y -framerate 30 -i output/visual/visual_biot_sand_target_frames/frame_%06d.ppm -pix_fmt yuv420p output/visual/visual_biot_sand_target.mp4
+```
+
+If your Python environment has `h5py`, you can also render directly from HDF5:
+
+```sh
+python python/h5_to_mp4.py output/visual/visual_lossless_slow_block.h5 output/visual/visual_lossless_slow_block.mp4
+```
+
 Run the fast baseline checks:
 
 ```sh
@@ -153,7 +168,7 @@ Downsides and limitations:
 - many relaxation mechanisms can fit data but become parameter-heavy;
 - does not by itself explain non-integer broadband power laws compactly.
 
-Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s }` in `src/model.rs`. This first version uses one relaxed velocity memory as a fast diagnostic proxy, not a complete calibrated Zener constitutive solver.
+Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s, relaxation_strength }` in `src/model.rs`. This version uses a one-memory relaxation of the Laplacian/strain term plus damping, so it is closer to a Zener-style relaxation baseline than the first velocity-memory proxy, but it is still not a fully calibrated constitutive solver.
 
 ### 4. Constant-Q / Kjartansson-Style Viscoacoustic Model
 
@@ -176,7 +191,7 @@ Downsides and limitations:
 - low-frequency and high-frequency behavior need care for causality;
 - not enough when measured exponents differ strongly by material.
 
-Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz }` in `src/model.rs`. This first version maps `Q` at a reference frequency to a simple damped update, so it is a band-limited proxy rather than a full Kjartansson dispersion implementation.
+Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz, dispersion_strength }` in `src/model.rs`. This version maps `Q` at a reference frequency to damping and adds a causal one-relaxation dispersion proxy around that frequency, so it is still band-limited rather than a full Kjartansson implementation.
 
 ### 5. Biot Poroelastic Model
 
@@ -202,6 +217,22 @@ Downsides and limitations:
 - published measurements in water-saturated granular materials still show frequency dependencies that simpler Biot-derived models may only match qualitatively.
 
 Implementation status: reduced baseline implemented as `WaveModel::ReducedBiotPoroelastic { drag_gamma, relaxation_time_s, pore_coupling }` in `src/model.rs`. This first version is a pore-drag memory proxy for smoke testing, not full coupled solid/fluid Biot elastodynamics.
+
+Current visual scenarios:
+
+- `visual_lossless_uniform`: basic circular wavefront sanity check.
+- `visual_lossless_slow_block`: wavefront delay/refraction through a slow rectangular block.
+- `visual_lossless_fast_target`: sand-like slow region with a fast circular target.
+- `visual_damped_slow_block`: same slow block with simple damping.
+- `visual_sls_slow_block`: slow block with the reduced SLS/Zener baseline.
+- `visual_constant_q_slow_block`: slow block with the reduced constant-Q baseline.
+- `visual_biot_sand_target`: slow sand-like region with fast target and reduced Biot/EDFM-style drag.
+
+Each scenario writes:
+
+- `output/visual/<name>.h5`: HDF5 wavefield frames.
+- `output/visual/<name>.csv`: final pressure field.
+- `output/visual/<name>_frames/frame_*.ppm`: dependency-free image frames for `ffmpeg`.
 
 ## Why Frequency Dependence Matters
 
@@ -293,6 +324,8 @@ This is deliberately conservative:
 
 The practical consequence is that fractional history storage should eventually be grouped by material region or by quantized `alpha`, not by arbitrary floating-point values at every cell.
 
+See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning list: short-memory truncation, SOE approximations, nonsmooth-data convergence loss, variable-order stability issues, and spatial fractional boundary traps.
+
 ## Output Plan
 
 Near-term:
@@ -324,9 +357,12 @@ Long-term:
 - [x] Add reduced constant-Q baseline.
 - [x] Add reduced Biot/EDFM-style baseline.
 - [x] Add baseline lossless heterogeneous acoustic solver.
+- [x] Improve reduced Zener/SLS proxy from velocity memory to Laplacian/strain relaxation memory.
+- [x] Add causal single-relaxation dispersion proxy to constant-Q baseline.
 - [ ] Replace reduced Zener/SLS proxy with calibrated constitutive model.
-- [ ] Replace constant-Q proxy with causal dispersion implementation.
+- [ ] Replace reduced constant-Q proxy with full causal Kjartansson-style implementation.
 - [ ] Replace reduced Biot proxy with coupled poroelastic or EDFM implementation.
+- [x] Add named visual sanity scenarios for video inspection.
 - [x] Prototype fractional time derivative weights with Grünwald-Letnikov coefficients.
 - [x] Decide how to handle spatially varying fractional order at material interfaces.
 - [x] Add unit tests for CFL checks, source wavelet, and material-map parsing.
@@ -335,6 +371,7 @@ Long-term:
 - [ ] Add image-mask material-map loader.
 - [ ] Store material maps, source wavelet, and probe traces in HDF5 metadata.
 - [ ] Add published-reference benchmark behavior from Argo et al. or another source paper.
+- [ ] Add fractional-kernel approximation tests from `docs/fractional_numerics_pitfalls.md`.
 
 ## Local Papers
 

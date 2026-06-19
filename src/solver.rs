@@ -6,7 +6,7 @@ use crate::grid::{Grid, Probe};
 use crate::hdf5_helper::Hdf5WaveWriter;
 use crate::materials::MaterialMap;
 use crate::model::{WaveModel, update_pressure};
-use crate::output::{ensure_parent_dir, save_pressure_csv};
+use crate::output::{ensure_parent_dir, save_pressure_csv, save_pressure_ppm};
 use crate::source::{Source, source_value};
 
 pub struct SimParams {
@@ -62,6 +62,7 @@ pub struct SimOutput {
 pub struct OutputConfig {
     pub csv_path: Option<String>,
     pub hdf5_path: Option<String>,
+    pub image_frame_dir: Option<String>,
     pub frame_interval: usize,
 }
 
@@ -70,6 +71,7 @@ impl OutputConfig {
         Self {
             csv_path: Some("output/pressure_final.csv".to_owned()),
             hdf5_path: Some("output/wavefield.h5".to_owned()),
+            image_frame_dir: None,
             frame_interval: 20,
         }
     }
@@ -180,6 +182,7 @@ pub fn run_simulation_with_output(
         }
 
         write_frame_if_needed(&mut hdf5_writer, output_config, step, grid, &fields.p)?;
+        write_image_frame_if_needed(output_config, step, grid, &fields.p)?;
 
         if log_progress && step % 100 == 0 {
             println!("Step {}/{}", step, params.n_steps);
@@ -304,6 +307,32 @@ fn write_frame_if_needed(
 
     let frame = Array2::from_shape_vec((grid.nz, grid.nx), pressure.to_vec())?;
     writer.append_timestep(&frame)?;
+    Ok(())
+}
+
+fn write_image_frame_if_needed(
+    output_config: Option<&OutputConfig>,
+    step: usize,
+    grid: Grid,
+    pressure: &[f32],
+) -> Result<(), Box<dyn Error>> {
+    let Some(config) = output_config else {
+        return Ok(());
+    };
+    let Some(dir) = &config.image_frame_dir else {
+        return Ok(());
+    };
+    if config.frame_interval == 0 {
+        return Err("image frame_interval must be greater than zero".into());
+    }
+    if step % config.frame_interval != 0 {
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(dir)?;
+    let frame_index = step / config.frame_interval;
+    let path = format!("{dir}/frame_{frame_index:06}.ppm");
+    save_pressure_ppm(path, grid, pressure, None)?;
     Ok(())
 }
 
@@ -563,6 +592,7 @@ mod tests {
         assert_lossy_model_is_reasonable(WaveModel::StandardLinearSolid {
             damping_gamma: 0.5,
             relaxation_time_s: 0.12,
+            relaxation_strength: 0.05,
         });
     }
 
@@ -571,6 +601,7 @@ mod tests {
         assert_lossy_model_is_reasonable(WaveModel::ConstantQ {
             q: 60.0,
             reference_freq_hz: 5.0,
+            dispersion_strength: 0.05,
         });
     }
 
@@ -653,6 +684,7 @@ mod tests {
         let config = OutputConfig {
             csv_path: Some(csv_path.clone()),
             hdf5_path: Some(hdf5_path.clone()),
+            image_frame_dir: None,
             frame_interval: 2,
         };
 

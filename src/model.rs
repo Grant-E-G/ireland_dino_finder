@@ -5,13 +5,18 @@ pub enum WaveModel {
     LosslessAcoustic,
     /// README model 2: d_t^2 p + gamma d_t p = c^2 laplacian(p) + s.
     LinearDampedAcoustic { gamma: f32 },
-    /// README model 3, reduced SLS/Zener proxy with one relaxed velocity memory.
+    /// README model 3, reduced SLS/Zener proxy with one relaxed strain/Laplacian memory.
     StandardLinearSolid {
         damping_gamma: f32,
         relaxation_time_s: f32,
+        relaxation_strength: f32,
     },
     /// README model 4, band-limited constant-Q proxy around a reference frequency.
-    ConstantQ { q: f32, reference_freq_hz: f32 },
+    ConstantQ {
+        q: f32,
+        reference_freq_hz: f32,
+        dispersion_strength: f32,
+    },
     /// README model 5, reduced poroelastic proxy with pore-drag memory.
     ReducedBiotPoroelastic {
         drag_gamma: f32,
@@ -51,19 +56,41 @@ pub fn update_pressure(
         WaveModel::StandardLinearSolid {
             damping_gamma,
             relaxation_time_s,
+            relaxation_strength,
         } => {
-            let relaxed_velocity = relax_toward(aux, velocity, dt, relaxation_time_s);
+            assert!(
+                (0.0..=1.0).contains(&relaxation_strength),
+                "relaxation_strength must be in [0, 1]"
+            );
+            let relaxed_lap = relax_toward(aux, lap, dt, relaxation_time_s);
+            let effective_lap =
+                (1.0 - relaxation_strength) * lap + relaxation_strength * relaxed_lap;
             let p_next =
-                2.0 * p - p_prev + coef_x * lap - dt * dt * damping_gamma * relaxed_velocity;
-            (p_next, relaxed_velocity)
+                2.0 * p - p_prev + coef_x * effective_lap - dt * dt * damping_gamma * velocity;
+            (p_next, relaxed_lap)
         }
         WaveModel::ConstantQ {
             q,
             reference_freq_hz,
+            dispersion_strength,
         } => {
             assert!(q > 0.0, "constant-Q model requires q > 0");
+            assert!(
+                reference_freq_hz > 0.0,
+                "constant-Q model requires reference_freq_hz > 0"
+            );
+            assert!(
+                (0.0..=1.0).contains(&dispersion_strength),
+                "dispersion_strength must be in [0, 1]"
+            );
             let gamma = 2.0 * std::f32::consts::PI * reference_freq_hz / q;
-            (update_linear_damped(p, p_prev, lap, coef_x, dt, gamma), aux)
+            let tau = 1.0 / (2.0 * std::f32::consts::PI * reference_freq_hz);
+            let relaxed_lap = relax_toward(aux, lap, dt, tau);
+            let effective_lap = lap + dispersion_strength * (relaxed_lap - lap);
+            (
+                update_linear_damped(p, p_prev, effective_lap, coef_x, dt, gamma),
+                relaxed_lap,
+            )
         }
         WaveModel::ReducedBiotPoroelastic {
             drag_gamma,
