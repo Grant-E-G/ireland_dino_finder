@@ -99,7 +99,7 @@ tau_epsilon = tau_epsilon(x, z)
 
 That is mathematically and numerically awkward. The first practical implementation should probably be a 2D material map with piecewise-constant parameters, where each material owns a fixed fractional order and relaxation parameters.
 
-Not every exponent is physically admissible. The power-law memory kernel is completely monotone (hence a positive superposition of decaying relaxation modes) only for a restricted range of orders; for power-law attenuation the relaxation modulus is completely monotone only when roughly `1/2 <= alpha <= 1` (Hanyga). Exponents outside that range can still be fit, but they no longer correspond to a passive relaxation spectrum, which is worth tracking per material.
+Not every exponent is physically admissible. The Caputo power-law memory kernel is completely monotone, hence a positive superposition of decaying relaxation modes, but a full attenuation/dispersion model has extra passivity constraints. In Hanyga's power-law attenuation example `beta(p) = C p^alpha`, complete monotonicity of the associated relaxation modulus requires roughly `1/2 <= alpha <= 1`. Exponents outside the relevant passive range can still be fit, but they should be flagged per material rather than treated as automatically physical.
 
 ## Baseline Models
 
@@ -348,6 +348,16 @@ The following PDFs were downloaded into `source/pdf/` for local reading and are 
 - `chintada_rau_goksel_2022_spectral_ultrasound_sos_attenuation.pdf`
 - `tsiklauri_2002_poroelastic_biot_slip_velocity.pdf`
 - `argo_guild_wilson_2009_sound_speed_water_saturated_glass_beads.pdf`
+- `hanyga_2013_viscoelastic_completely_monotonic_relaxation.pdf`
+- `lewandowska_kosztolowicz_2006_short_memory_subdiffusion.pdf`
+- `jin_lazarov_zhou_2015_l1_nonsmooth_data.pdf`
+- `jin_lazarov_zhou_2018_nonsmooth_data_overview.pdf`
+- `li_wang_xie_2019_l1_fractional_wave_nonsmooth.pdf`
+- `zheng_2021_variable_order_integral_equation.pdf`
+- `quan_wu_yang_2022_fast_l2_stability_soe.pdf`
+- `chaudhary_diethelm_farhadi_fuchs_2025_exponential_sum_power_law.pdf`
+- `lischke_pang_gulian_2018_what_is_fractional_laplacian.pdf`
+- `borthagaray_leykekhman_nochetto_2020_fractional_laplacian_boundary_singularity.pdf`
 
 ## References
 
