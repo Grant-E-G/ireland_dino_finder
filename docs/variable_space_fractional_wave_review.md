@@ -100,12 +100,12 @@ One subtlety to flag up front: `τ_σ^α` carries units of `time^α`, so under `
 
 ## 4. Baselines
 
-The README documents the baseline models and their implementation status in full (`WaveModel::LosslessAcoustic`, `LinearDampedAcoustic`, `StandardLinearSolid`, `ConstantQ`, `ReducedBiotPoroelastic`). The point here is not to restate them but to record *why each one is in the comparison set*. The baselines are not busywork; they are how we keep ourselves honest, because the fractional model only earns its place by predicting something they cannot.
+The README documents the baseline models and their implementation status in full (`WaveModel::LosslessAcoustic`, `LinearDampedAcoustic`, `StandardLinearSolid`, `FractionalConstantQ`, `ReducedBiotPoroelastic`). The point here is not to restate them but to record *why each one is in the comparison set*. The baselines are not busywork; they are how we keep ourselves honest, because the fractional model only earns its place by predicting something they cannot.
 
 - **Lossless acoustic.** Tests geometry, wave speed, finite-difference stability, and visual sanity. It can give arrival times and reflection/refraction; it cannot give any intrinsic, frequency-dependent, or sub-grid loss. If this fails, nothing fractional matters.
 - **Simple damped acoustic.** The minimal lossy model. Useful only to confirm that energy decays and boundaries behave. The sharp test: if the fractional model does not differ from this spectrally, the fractional machinery is dead weight.
 - **Standard linear solid / Zener.** One relaxation mechanism, with a characteristic time and causal attenuation/dispersion over a limited band. This baseline matters most because many fractional *approximations* collapse into exactly "some number of Zener mechanisms" (see §5.2). When that happens it is not wrong, but it changes the claim.
-- **Constant-Q / Kjartansson.** Encodes broadband attenuation compactly via a quality factor, and sits between simple damping and a fractional constitutive law. Causal constant-Q is subtle: low- and high-frequency cutoffs matter.
+- **Fractional constant-Q / Kjartansson.** Encodes broadband attenuation compactly via a quality factor, and is the fractional-law comparison point between simple damping and a full material-memory solver. Causal constant-Q is subtle: low- and high-frequency cutoffs matter.
 - **Biot / poroelastic.** For saturated sand or sediment, scalar acoustics is too thin; Biot couples solid-frame and pore-fluid motion and is directly relevant to the fish-tank geometry (sand + water + a bone-like inclusion). The cost is parameter burden — permeability, tortuosity, porosity, frame moduli, pore geometry all drive the model, and a bad Biot parameter set can be less honest than a humble scalar baseline. Argo et al.'s water-saturated glass-bead measurements are the cautionary data point: even Biot-derived effective-density-fluid models can match porosity trends while missing the frequency trend (they report negative dispersion above ~550 kHz).
 
 ## 5. What the Fractional Literature Warns Us About
@@ -203,7 +203,7 @@ as a reference. The README already prototypes Grünwald-Letnikov weights; GL, th
 
 **Stage 3 — Add the SOE / diffusive approximation as an explicit approximation.** Then add `kernel(t) ≈ Σ_j w_j e^(-λ_j t)`. Do not hide it behind the same type as the full-history derivative. Store the fit interval, number of exponentials, weight signs, max kernel error, and the frequency band where the attenuation slope is acceptable.
 
-**Stage 4 — Compare against baselines.** For every geometry, run: lossless; simple damped; Zener/SLS; constant-Q; Biot/EDFM-style if saturated sediment is involved; fractional full-history; fractional fast approximation. The fractional model earns its keep only if it predicts something the baselines do not, preferably tied to frequency dependence.
+**Stage 4 — Compare against baselines.** For every geometry, run: lossless; simple damped; Zener/SLS; fractional constant-Q; Biot/EDFM-style if saturated sediment is involved; fractional full-history; fractional fast approximation. The fractional model earns its keep only if it predicts something the baselines do not, preferably tied to frequency dependence.
 
 ## 7. What Would Be Visually Obvious?
 
@@ -236,7 +236,7 @@ Safe to say:
 - We have visual sanity scenarios.
 - We have a literature-backed warning list for fractional numerics.
 - We have not yet implemented a real calibrated fractional Zener solver.
-- We should not claim fractional superiority until it beats Zener/constant-Q/Biot baselines on frequency-dependent probe diagnostics.
+- We should not claim fractional superiority until it beats Zener/fractional constant-Q/Biot baselines on frequency-dependent probe diagnostics.
 
 Not safe to say yet:
 

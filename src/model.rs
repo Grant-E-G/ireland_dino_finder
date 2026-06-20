@@ -11,8 +11,8 @@ pub enum WaveModel {
         relaxation_time_s: f32,
         relaxation_strength: f32,
     },
-    /// README model 4, band-limited constant-Q proxy around a reference frequency.
-    ConstantQ {
+    /// README model 4, reduced fractional constant-Q proxy around a reference frequency.
+    FractionalConstantQ {
         q: f32,
         reference_freq_hz: f32,
         dispersion_strength: f32,
@@ -69,7 +69,7 @@ pub fn update_pressure(
                 2.0 * p - p_prev + coef_x * effective_lap - dt * dt * damping_gamma * velocity;
             (p_next, relaxed_lap)
         }
-        WaveModel::ConstantQ {
+        WaveModel::FractionalConstantQ {
             q,
             reference_freq_hz,
             dispersion_strength,

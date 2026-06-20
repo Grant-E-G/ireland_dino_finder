@@ -79,8 +79,8 @@ fn visual_scenarios() -> Vec<VisualScenario> {
             material_case: MaterialCase::SlowBlock,
         },
         VisualScenario {
-            name: "visual_constant_q_slow_block",
-            model: WaveModel::ConstantQ {
+            name: "visual_fractional_constant_q_slow_block",
+            model: WaveModel::FractionalConstantQ {
                 q: 70.0,
                 reference_freq_hz: 5.0,
                 dispersion_strength: 0.20,

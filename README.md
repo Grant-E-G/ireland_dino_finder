@@ -148,7 +148,7 @@ Limits: a single relaxation time fits a limited band; many mechanisms fit broade
 
 Implementation status: reduced baseline implemented as `WaveModel::StandardLinearSolid { damping_gamma, relaxation_time_s, relaxation_strength }` in `src/model.rs`. This version uses a one-memory relaxation of the Laplacian/strain term plus damping, so it is closer to a Zener-style relaxation baseline than the first velocity-memory proxy, but it is still not a fully calibrated constitutive solver.
 
-### 4. Constant-Q / Kjartansson-Style Viscoacoustic Model
+### 4. Fractional Constant-Q / Kjartansson-Style Viscoacoustic Model
 
 A common seismic approximation treats quality factor `Q` as roughly frequency independent over a band:
 
@@ -157,11 +157,11 @@ Q^-1 = energy_lost_per_cycle / (2 * pi * stored_energy)
 attenuation(omega) approximately proportional to omega / (2 * Q * c)
 ```
 
-Strengths: widely used in seismic modeling; better than lossless acoustics for broad attenuation; good comparison point for inverse-Q processing.
+Strengths: widely used in seismic modeling; better than lossless acoustics for broad attenuation; good comparison point for inverse-Q processing; the Kjartansson idealization is a fractional-law baseline rather than a plain integer-order damper.
 
 Limits: constant `Q` implies a constrained frequency law; low- and high-frequency behavior need care for causality; not enough when measured exponents differ strongly by material.
 
-Implementation status: reduced baseline implemented as `WaveModel::ConstantQ { q, reference_freq_hz, dispersion_strength }` in `src/model.rs`. This version maps `Q` at a reference frequency to damping and adds a causal one-relaxation dispersion proxy around that frequency, so it is still band-limited rather than a full Kjartansson implementation.
+Implementation status: reduced fractional baseline implemented as `WaveModel::FractionalConstantQ { q, reference_freq_hz, dispersion_strength }` in `src/model.rs`. This version maps `Q` at a reference frequency to damping and adds a causal one-relaxation dispersion proxy around that frequency, so it is still band-limited rather than a full Kjartansson implementation.
 
 ### 5. Biot Poroelastic Model
 
@@ -187,7 +187,7 @@ Current visual scenarios:
 - `visual_lossless_fast_target`: sand-like slow region with a fast circular target.
 - `visual_damped_slow_block`: same slow block with simple damping.
 - `visual_sls_slow_block`: slow block with the reduced SLS/Zener baseline.
-- `visual_constant_q_slow_block`: slow block with the reduced constant-Q baseline.
+- `visual_fractional_constant_q_slow_block`: slow block with the reduced fractional constant-Q baseline.
 - `visual_biot_sand_target`: slow sand-like region with fast target and reduced Biot/EDFM-style drag.
 
 Each scenario writes:
@@ -268,6 +268,8 @@ The current tests live with the solver/model/material modules and run with `carg
 
 Material maps can be loaded from CSV masks whose cells are material ids from `data/material_properties.csv`. See `data/material_map_example.csv` for the current simple format. Missing velocities fall back to a caller-provided speed so early experiments can still run while the dataset is incomplete.
 
+Material maps can also be loaded from ASCII P3 PPM image masks by providing a color-to-material-id table. The loader maps each pixel color to a material id, then resolves wave speed through the same material catalog.
+
 Immediate cleanup targets:
 
 - replace generic cortical bone values with the actual bone, antler, or phantom used in a tank;
@@ -292,14 +294,13 @@ See `docs/fractional_numerics_pitfalls.md` for the current theory-side warning l
 
 ## Output Plan
 
-Near-term:
+Recently completed:
 
-- store material maps alongside wavefields;
-- include source wavelet and probe traces in HDF5 metadata.
+- store material speed maps, material-id indices, source wavelet, probe coordinates, and probe traces alongside wavefields in HDF5.
 
 Medium-term:
 
-- compare lossless, damped, Zener, constant-Q, Biot/EDFM, and fractional models on the same geometry;
+- compare lossless, damped, Zener, fractional constant-Q, Biot/EDFM, and full fractional models on the same geometry;
 - compute residual plots and frequency-domain probe diagnostics;
 - add richer 2D heterogeneous material maps from image masks.
 
@@ -318,13 +319,13 @@ Long-term:
 - [x] Add baseline lossless homogeneous acoustic solver.
 - [x] Add simple damped acoustic baseline.
 - [x] Add reduced Zener/SLS baseline.
-- [x] Add reduced constant-Q baseline.
+- [x] Add reduced fractional constant-Q baseline.
 - [x] Add reduced Biot/EDFM-style baseline.
 - [x] Add baseline lossless heterogeneous acoustic solver.
 - [x] Improve reduced Zener/SLS proxy from velocity memory to Laplacian/strain relaxation memory.
-- [x] Add causal single-relaxation dispersion proxy to constant-Q baseline.
+- [x] Add causal single-relaxation dispersion proxy to fractional constant-Q baseline.
 - [ ] Replace reduced Zener/SLS proxy with calibrated constitutive model.
-- [ ] Replace reduced constant-Q proxy with full causal Kjartansson-style implementation.
+- [ ] Replace reduced fractional constant-Q proxy with full causal Kjartansson-style implementation.
 - [ ] Replace reduced Biot proxy with coupled poroelastic or EDFM implementation.
 - [x] Add named visual sanity scenarios for video inspection.
 - [x] Prototype fractional time derivative weights with Grünwald-Letnikov coefficients.
@@ -332,8 +333,8 @@ Long-term:
 - [x] Add unit tests for CFL checks, source wavelet, and material-map parsing.
 - [x] Add first benchmark case with analytic travel-time behavior.
 - [x] Add uncertainty columns to material data.
-- [ ] Add image-mask material-map loader.
-- [ ] Store material maps, source wavelet, and probe traces in HDF5 metadata.
+- [x] Add image-mask material-map loader.
+- [x] Store material maps, source wavelet, and probe traces in HDF5 metadata.
 - [ ] Add published-reference benchmark behavior from Argo et al. or another source paper.
 - [ ] Add fractional-kernel approximation tests from `docs/fractional_numerics_pitfalls.md`.
 

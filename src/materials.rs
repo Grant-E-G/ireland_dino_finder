@@ -119,6 +119,70 @@ impl MaterialMap {
         Ok(Self { grid, c, ids })
     }
 
+    pub fn from_ppm_mask(
+        path: impl AsRef<Path>,
+        grid: Grid,
+        color_materials: &[((u8, u8, u8), &str)],
+        catalog: &MaterialCatalog,
+        fallback_velocity_m_s: f32,
+    ) -> Result<Self, Box<dyn Error>> {
+        assert!(
+            fallback_velocity_m_s > 0.0,
+            "fallback velocity must be positive"
+        );
+        let text = fs::read_to_string(path)?;
+        let mut tokens = ppm_tokens(&text);
+
+        let magic = tokens.next().ok_or("PPM mask is empty")?;
+        if magic != "P3" {
+            return Err("only ASCII P3 PPM masks are supported".into());
+        }
+
+        let width = parse_ppm_usize(tokens.next(), "width")?;
+        let height = parse_ppm_usize(tokens.next(), "height")?;
+        let max_value = parse_ppm_usize(tokens.next(), "max value")?;
+        if width != grid.nx || height != grid.nz {
+            return Err(format!(
+                "PPM mask is {}x{}, expected {}x{}",
+                width, height, grid.nx, grid.nz
+            )
+            .into());
+        }
+        if max_value == 0 || max_value > 255 {
+            return Err("PPM mask max value must be in 1..=255".into());
+        }
+
+        let mut by_color = HashMap::new();
+        for (rgb, material_id) in color_materials {
+            by_color.insert(*rgb, *material_id);
+        }
+
+        let mut ids = Vec::with_capacity(grid.len());
+        let mut c = Vec::with_capacity(grid.len());
+        for pixel_index in 0..grid.len() {
+            let r = parse_ppm_color(tokens.next(), max_value, "red")?;
+            let g = parse_ppm_color(tokens.next(), max_value, "green")?;
+            let b = parse_ppm_color(tokens.next(), max_value, "blue")?;
+            let material_id = by_color.get(&(r, g, b)).ok_or_else(|| {
+                format!("unmapped PPM color #{r:02x}{g:02x}{b:02x} at pixel {pixel_index}")
+            })?;
+            let velocity = catalog
+                .velocity_for(material_id)
+                .unwrap_or(fallback_velocity_m_s);
+            if velocity <= 0.0 {
+                return Err(format!("material {material_id} has non-positive wave speed").into());
+            }
+            ids.push((*material_id).to_owned());
+            c.push(velocity);
+        }
+
+        if tokens.next().is_some() {
+            return Err("PPM mask has extra pixel data".into());
+        }
+
+        Ok(Self { grid, c, ids })
+    }
+
     pub fn max_speed(&self) -> f32 {
         self.c.iter().copied().fold(0.0_f32, f32::max)
     }
@@ -138,6 +202,31 @@ fn parse_optional_f32(value: &str) -> Option<f32> {
     } else {
         trimmed.parse().ok()
     }
+}
+
+fn ppm_tokens(text: &str) -> impl Iterator<Item = &str> {
+    text.lines()
+        .map(|line| line.split_once('#').map_or(line, |(before, _)| before))
+        .flat_map(str::split_whitespace)
+}
+
+fn parse_ppm_usize(value: Option<&str>, label: &str) -> Result<usize, Box<dyn Error>> {
+    value
+        .ok_or_else(|| format!("missing PPM {label}"))?
+        .parse()
+        .map_err(|_| format!("invalid PPM {label}").into())
+}
+
+fn parse_ppm_color(
+    value: Option<&str>,
+    max_value: usize,
+    channel: &str,
+) -> Result<u8, Box<dyn Error>> {
+    let raw = parse_ppm_usize(value, channel)?;
+    if raw > max_value {
+        return Err(format!("PPM {channel} channel {raw} exceeds max value {max_value}").into());
+    }
+    Ok(((raw * 255 + max_value / 2) / max_value) as u8)
 }
 
 pub fn split_csv_record(line: &str) -> Vec<String> {

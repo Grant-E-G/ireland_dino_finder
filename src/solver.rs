@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 
 use ndarray::Array2;
@@ -196,6 +197,8 @@ pub fn run_simulation_with_output(
         }
     }
 
+    write_probe_metadata_if_needed(&hdf5_writer, probes, &probe_traces)?;
+
     Ok(SimOutput {
         final_pressure: fields.p,
         probe_traces,
@@ -285,7 +288,83 @@ fn create_hdf5_writer(
         Some(grid.dx as f64),
         Some(grid.dz as f64),
     )?;
+    writer.write_static_field_f32("material_speed", &params.material_map.c)?;
+    let (material_indices, material_name_bytes, material_count, material_name_width) =
+        material_id_metadata(&params.material_map.ids);
+    writer.write_static_field_i32("material_id_index", &material_indices)?;
+    writer.write_byte_table(
+        "material_id_names",
+        &material_name_bytes,
+        material_count,
+        material_name_width,
+    )?;
+    let source_wavelet: Vec<f32> = (0..params.n_steps)
+        .map(|step| source_value(params.source, step, step as f32 * params.dt))
+        .collect();
+    writer.write_vector_f32("source_wavelet", &source_wavelet)?;
     Ok(Some(writer))
+}
+
+fn material_id_metadata(ids: &[String]) -> (Vec<i32>, Vec<u8>, usize, usize) {
+    let mut by_id: HashMap<&str, i32> = HashMap::new();
+    let mut names: Vec<&str> = Vec::new();
+    let mut indices = Vec::with_capacity(ids.len());
+
+    for id in ids {
+        let next_index = names.len() as i32;
+        let index = *by_id.entry(id.as_str()).or_insert_with(|| {
+            names.push(id.as_str());
+            next_index
+        });
+        indices.push(index);
+    }
+
+    let name_width = names
+        .iter()
+        .map(|name| name.len())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mut name_bytes = vec![0_u8; names.len().max(1) * name_width];
+    for (row, name) in names.iter().enumerate() {
+        let offset = row * name_width;
+        let bytes = name.as_bytes();
+        name_bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
+    }
+
+    (indices, name_bytes, names.len().max(1), name_width)
+}
+
+fn write_probe_metadata_if_needed(
+    hdf5_writer: &Option<Hdf5WaveWriter>,
+    probes: &[Probe],
+    probe_traces: &[Vec<f32>],
+) -> Result<(), Box<dyn Error>> {
+    let Some(writer) = hdf5_writer else {
+        return Ok(());
+    };
+    if probes.is_empty() {
+        return Ok(());
+    }
+
+    let probe_x: Vec<i32> = probes.iter().map(|probe| probe.x as i32).collect();
+    let probe_z: Vec<i32> = probes.iter().map(|probe| probe.z as i32).collect();
+    writer.write_vector_i32("probe_x", &probe_x)?;
+    writer.write_vector_i32("probe_z", &probe_z)?;
+
+    let n_probes = probe_traces.len();
+    let n_steps = probe_traces.first().map_or(0, Vec::len);
+    let mut flattened = Vec::with_capacity(n_probes * n_steps);
+    for trace in probe_traces {
+        assert_eq!(
+            trace.len(),
+            n_steps,
+            "all probe traces must have same length"
+        );
+        flattened.extend_from_slice(trace);
+    }
+    writer.write_matrix_f32("probe_traces", &flattened, n_probes, n_steps)?;
+    Ok(())
 }
 
 fn write_frame_if_needed(
@@ -478,6 +557,44 @@ mod tests {
     }
 
     #[test]
+    fn ppm_mask_loads_material_ids_from_colors() {
+        let properties_path = temp_path("ppm_materials.csv");
+        let mask_path = temp_path("mask.ppm");
+        fs::write(
+            &properties_path,
+            "material_id,p_wave_velocity_m_s\nwater,1.0\nbone,2.0\n",
+        )
+        .unwrap();
+        fs::write(
+            &mask_path,
+            "P3\n# water black, bone white\n3 3\n255\n0 0 0 255 255 255 0 0 0\n255 255 255 0 0 0 255 255 255\n0 0 0 255 255 255 0 0 0\n",
+        )
+        .unwrap();
+
+        let catalog = MaterialCatalog::from_properties_csv(&properties_path).unwrap();
+        let grid = Grid::new(3, 3, 1.0, 1.0);
+        let map = MaterialMap::from_ppm_mask(
+            &mask_path,
+            grid,
+            &[((0, 0, 0), "water"), ((255, 255, 255), "bone")],
+            &catalog,
+            1.5,
+        )
+        .unwrap();
+
+        assert_eq!(
+            map.ids,
+            vec![
+                "water", "bone", "water", "bone", "water", "bone", "water", "bone", "water"
+            ]
+        );
+        assert_eq!(map.c, vec![1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0]);
+
+        let _ = fs::remove_file(properties_path);
+        let _ = fs::remove_file(mask_path);
+    }
+
+    #[test]
     fn ricker_source_peaks_near_center_time() {
         let f0 = 5.0;
         let center = 3.0 / f0;
@@ -597,8 +714,8 @@ mod tests {
     }
 
     #[test]
-    fn constant_q_baseline_is_reasonable() {
-        assert_lossy_model_is_reasonable(WaveModel::ConstantQ {
+    fn fractional_constant_q_baseline_is_reasonable() {
+        assert_lossy_model_is_reasonable(WaveModel::FractionalConstantQ {
             q: 60.0,
             reference_freq_hz: 5.0,
             dispersion_strength: 0.05,
@@ -679,6 +796,7 @@ mod tests {
     fn hdf5_and_csv_output_are_written_from_active_solver_path() {
         let mut params = fast_baseline_params(WaveModel::LosslessAcoustic);
         params.n_steps = 8;
+        let probe = fast_baseline_probe(&params);
         let csv_path = temp_path("pressure.csv");
         let hdf5_path = temp_path("wavefield.h5");
         let config = OutputConfig {
@@ -688,7 +806,7 @@ mod tests {
             frame_interval: 2,
         };
 
-        run_simulation_with_output(&params, &[], false, Some(&config)).unwrap();
+        run_simulation_with_output(&params, &[probe], false, Some(&config)).unwrap();
 
         assert!(fs::metadata(&csv_path).unwrap().len() > 0);
         assert!(fs::metadata(&hdf5_path).unwrap().len() > 0);

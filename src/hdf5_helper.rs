@@ -91,6 +91,84 @@ impl Hdf5WaveWriter {
         Ok(())
     }
 
+    pub fn write_static_field_f32(&self, name: &str, values: &[f32]) -> Result<()> {
+        assert_eq!(values.len(), self.ny * self.nx);
+        let field = Array2::from_shape_vec((self.ny, self.nx), values.to_vec())
+            .expect("validated field shape");
+        self.file
+            .new_dataset::<f32>()
+            .shape((self.ny, self.nx))
+            .create(name)?
+            .write(field.view())?;
+        Ok(())
+    }
+
+    pub fn write_static_field_i32(&self, name: &str, values: &[i32]) -> Result<()> {
+        assert_eq!(values.len(), self.ny * self.nx);
+        let field = Array2::from_shape_vec((self.ny, self.nx), values.to_vec())
+            .expect("validated field shape");
+        self.file
+            .new_dataset::<i32>()
+            .shape((self.ny, self.nx))
+            .create(name)?
+            .write(field.view())?;
+        Ok(())
+    }
+
+    pub fn write_byte_table(
+        &self,
+        name: &str,
+        values: &[u8],
+        rows: usize,
+        cols: usize,
+    ) -> Result<()> {
+        assert_eq!(values.len(), rows * cols);
+        let table =
+            Array2::from_shape_vec((rows, cols), values.to_vec()).expect("validated table shape");
+        self.file
+            .new_dataset::<u8>()
+            .shape((rows, cols))
+            .create(name)?
+            .write(table.view())?;
+        Ok(())
+    }
+
+    pub fn write_vector_f32(&self, name: &str, values: &[f32]) -> Result<()> {
+        self.file
+            .new_dataset::<f32>()
+            .shape(values.len())
+            .create(name)?
+            .write(values)?;
+        Ok(())
+    }
+
+    pub fn write_vector_i32(&self, name: &str, values: &[i32]) -> Result<()> {
+        self.file
+            .new_dataset::<i32>()
+            .shape(values.len())
+            .create(name)?
+            .write(values)?;
+        Ok(())
+    }
+
+    pub fn write_matrix_f32(
+        &self,
+        name: &str,
+        values: &[f32],
+        rows: usize,
+        cols: usize,
+    ) -> Result<()> {
+        assert_eq!(values.len(), rows * cols);
+        let matrix =
+            Array2::from_shape_vec((rows, cols), values.to_vec()).expect("validated matrix shape");
+        self.file
+            .new_dataset::<f32>()
+            .shape((rows, cols))
+            .create(name)?
+            .write(matrix.view())?;
+        Ok(())
+    }
+
     /// Append a single time slice u_t(y, x) to the "u" dataset.
     pub fn append_timestep(&mut self, u: &Array2<f32>) -> Result<()> {
         assert_eq!(u.shape(), &[self.ny, self.nx]);
